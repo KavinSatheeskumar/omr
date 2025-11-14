@@ -1296,6 +1296,12 @@ public:
 
     TR_FilterBST *findRegex(const char *methodSpec);
 
+    int32_t scanFilterName(const char *string);
+
+    void print();
+
+    void printFilterTree();
+
     char *_name;
     char *_class;
     char *_signature;
@@ -1329,6 +1335,7 @@ namespace TR {
 class CompilationFilters {
 public:
 #define FILTER_HASH_SIZE 211
+#define FILTER_SIZE (sizeof(TR::CompilationFilters) + sizeof(TR_FilterBST *) * FILTER_HASH_SIZE)
     // Hash table for complete class+name+signature or name+signature.
     //
     TR_FilterBST **filterHash;
@@ -1380,6 +1387,30 @@ public:
         else
             flags &= ~DefaultExclude;
     }
+
+    void printFilters();
+
+    void clear();
+
+    TR_FilterBST *addFilter(const char *&filterString, bool scanningExclude, int32_t optionSetIndex, int32_t lineNum);
+
+    const char *limitOption(const char *option, void *base, TR::OptionTable *entry, TR::Options *cmdLineOptions);
+
+    const char *limitfileOption(const char *option, void *base, TR::OptionTable *entry,
+    TR::Options *cmdLineOptions, TR_PseudoRandomNumbersListElement **pseudoRandomListHeadPtr = 0);
+
+    bool methodCanBeFound(TR_Memory *trMemory, TR_ResolvedMethod *method, TR_FilterBST *&filter);
+
+    bool methodSigCanBeFound(const char *methodSig, TR::Method::Type methodType, TR_FilterBST *&filter);
+
+    static CompilationFilters *build();
+
+    // TODO: We really should make InlineFilters a subclass of
+    // compilation filters and have these methods live there
+    bool scanInlineFilters(::FILE *inlineFile, int32_t &lineNumber);
+
+    const char *inlinefileOption(const char *option, void *base, TR::OptionTable *entry, TR::Options *cmdLineOptions);
+
 };
 } // namespace TR
 
@@ -1396,12 +1427,6 @@ protected:
 
 public:
     TR_ALLOC(TR_Memory::Options)
-
-    TR::CodeCacheKind getCodeCacheKind() { return _codeCacheKind; }
-
-    TR::SimpleRegex *getTransientClassRegex() { return _transientClassRegex; }
-
-    void setCodeCacheKind(TR::CodeCacheKind kind) { _codeCacheKind = kind; }
 
     void init();
 
@@ -1961,6 +1986,18 @@ public:
 
     int32_t getArraycopyRepMovsReferenceArrayThreshold() { return _arraycopyRepMovsReferenceArrayThreshold; }
 
+    TR::CodeCacheKind getCodeCacheKind() { return _codeCacheKind; }
+
+    TR::SimpleRegex *getTransientClassRegex() { return _transientClassRegex; }
+
+    void setCodeCacheKind(TR::CodeCacheKind kind) { _codeCacheKind = kind; }
+
+    static TR::CompilationFilters *getCompilationFilters() { return _compilationFilters; }
+
+    static TR::CompilationFilters *getRelocationFilters() { return _relocationFilters; }
+
+    static TR::CompilationFilters *getInlineFilters() { return _inlineFilters; }
+
 public:
     static void shutdown(TR_FrontEnd *fe);
 
@@ -2454,7 +2491,8 @@ public:
     //
     static const char *helpOption(const char *option, void *, TR::OptionTable *entry);
 
-    static const char *limitOption(const char *option, void *, TR::OptionTable *entry);
+    static const char *limitOptionCompilation(const char *option, void *, TR::OptionTable *entry);
+    static const char *limitOptionRelocation(const char *option, void *, TR::OptionTable *entry);
     static const char *inlinefileOption(const char *option, void *, TR::OptionTable *entry);
     static const char *limitfileOption(const char *option, void *, TR::OptionTable *entry);
     static const char *versionOption(const char *option, void *, TR::OptionTable *entry);
@@ -2709,6 +2747,10 @@ protected:
 
     TR::CodeCacheKind _codeCacheKind;
     TR::SimpleRegex *_transientClassRegex;
+
+    static TR::CompilationFilters *_compilationFilters;
+    static TR::CompilationFilters *_relocationFilters;
+    static TR::CompilationFilters *_inlineFilters;
 }; // TR::Options
 
 } // namespace OMR

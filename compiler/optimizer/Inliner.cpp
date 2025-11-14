@@ -702,8 +702,8 @@ bool OMR_InlinerPolicy::tryToInlineGeneral(TR_CallTarget *calltarget, TR_CallSta
         inlineFilters = callStack->_inlineFilters;
 
         if (inlineFilters) {
-            bool inclusive = comp()->getDebug()->methodSigCanBeFound(signature, inlineFilters, filterInfo,
-                calltarget->_calleeMethod->convertToMethod()->methodType());
+            bool inclusive = inlineFilters->methodSigCanBeFound(signature,
+                calltarget->_calleeMethod->convertToMethod()->methodType(), filterInfo);
 
             if (filterInfo) {
                 if (toInline && inclusive)
@@ -721,12 +721,12 @@ bool OMR_InlinerPolicy::tryToInlineGeneral(TR_CallTarget *calltarget, TR_CallSta
             TR::CompilationFilters *inlineFilters = NULL;
 
             if (TR::Options::getDebug()) {
-                inlineFilters = TR::Options::getDebug()->getInlineFilters();
+                inlineFilters = TR::Options::getInlineFilters();
             }
 
             if (inlineFilters) {
-                bool inclusive = comp()->getDebug()->methodSigCanBeFound(signature, inlineFilters, filterInfo,
-                    calltarget->_calleeMethod->convertToMethod()->methodType());
+                bool inclusive = inlineFilters->methodSigCanBeFound(signature,
+                    calltarget->_calleeMethod->convertToMethod()->methodType(), filterInfo);
 
                 if (filterInfo) {
                     if (!inclusive)
@@ -770,11 +770,11 @@ TR_CallStack::TR_CallStack(TR::Compilation *c, TR::ResolvedMethodSymbol *methodS
 
     if (!nextCallStack) {
         if (TR::Options::getDebug())
-            inlineFilters = TR::Options::getDebug()->getInlineFilters();
+            inlineFilters = TR::Options::getInlineFilters();
 
         if (inlineFilters) {
-            bool inclusive = comp()->getDebug()->methodSigCanBeFound(_method->signature(comp()->trMemory()),
-                inlineFilters, filterInfo, _method->convertToMethod()->methodType());
+            bool inclusive = inlineFilters->methodSigCanBeFound(_method->signature(comp()->trMemory()),
+                _method->convertToMethod()->methodType(), filterInfo);
 
             if (filterInfo) {
                 if (!inclusive) {
@@ -788,8 +788,8 @@ TR_CallStack::TR_CallStack(TR::Compilation *c, TR::ResolvedMethodSymbol *methodS
             inlineFilters = nextCallStack->_inlineFilters;
 
         if (inlineFilters) {
-            bool inclusive = comp()->getDebug()->methodSigCanBeFound(_method->signature(comp()->trMemory()),
-                inlineFilters, filterInfo, _method->convertToMethod()->methodType());
+            bool inclusive = inlineFilters->methodSigCanBeFound(_method->signature(comp()->trMemory()),
+                _method->convertToMethod()->methodType(), filterInfo);
 
             if (filterInfo) {
                 if (inclusive) {

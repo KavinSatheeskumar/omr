@@ -2568,6 +2568,10 @@ int32_t OMR::Options::_maxSleepTimeMsForCompThrottling = 50; // ms
 int32_t OMR::Options::_startThrottlingTime = 0; // ms
 int32_t OMR::Options::_stopThrottlingTime = 0; // ms. 0 means no expiration time
 
+
+TR::CompilationFilters *OMR::Options::_compilationFilters = NULL;
+TR::CompilationFilters *OMR::Options::_relocationFilters = NULL;
+TR::CompilationFilters *OMR::Options::_inlineFilters = NULL;
 //
 // -----------------------------------------------------------------------------
 
@@ -2962,9 +2966,13 @@ const char *OMR::Options::latePostProcess(TR::Options *options, void *jitConfig,
                 return options->_startOptions;
             if (!optionSet->getOptions()->feLatePostProcess(_feBase, optionSet))
                 return options->_startOptions;
-            if (optionSet->getIndex() == TR_EXCLUDED_OPTIONSET_INDEX)
-                TR::Options::findOrCreateDebug()->addExcludedMethodFilter(
-                    isAOT); // Not sure isAOT is exactly the right thing to pass here
+            if (optionSet->getIndex() == TR_EXCLUDED_OPTIONSET_INDEX) {
+                TR_FilterBST *filterBST = new (TR::Compiler->regionAllocator)
+                    TR_FilterBST(TR_FILTER_EXCLUDE_SPECIFIC_METHOD, TR_EXCLUDED_OPTIONSET_INDEX);
+                (isAOT ? TR::Options::getRelocationFilters() : TR::Options::getCompilationFilters())
+                    ->excludedMethodFilter
+                    = filterBST;
+            }
         }
     }
 
@@ -3957,8 +3965,8 @@ TR::OptionFunctionPtr OMR::Options::negateProcessingMethod(TR::OptionFunctionPtr
 TR::OptionSet *OMR::Options::findOptionSet(TR_Memory *trMemory, TR_ResolvedMethod *vmMethod, bool isAOT)
 {
     TR_FilterBST *filter = 0;
-    if (OMR::Options::getDebug() && OMR::Options::getDebug()->getCompilationFilters())
-        OMR::Options::getDebug()->methodCanBeCompiled(trMemory, vmMethod, filter);
+    if (OMR::Options::getCompilationFilters())
+        OMR::Options::getCompilationFilters()->methodCanBeFound(trMemory, vmMethod, filter);
 
     int32_t optionSetIndex = filter ? filter->getOptionSet() : 0;
     int32_t lineNumber = filter ? filter->getLineNumber() : 0;
@@ -6007,26 +6015,34 @@ TR::Options *OMR::Options::getJITCmdLineOptions() { return _jitCmdLineOptions; }
 
 bool OMR::Options::useCompressedPointers() { return false; }
 
-const char *OMR::Options::limitOption(const char *option, void *base, TR::OptionTable *entry)
+const char *OMR::Options::limitOptionCompilation(const char *option, void *base, TR::OptionTable *entry)
 {
     // TODO: this is identical to the J9 frontend
-    if (!TR::Options::getDebug() && !TR::Options::createDebug())
-        return 0;
-    return TR::Options::getDebug()->limitOption(option, base, entry, TR::Options::getCmdLineOptions(), false);
+    if (!TR::Options::getCompilationFilters())
+        TR::Options::_compilationFilters = TR::CompilationFilters::build();
+    return TR::Options::getCompilationFilters()->limitOption(option, base, entry, TR::Options::getCmdLineOptions());
+}
+
+const char *OMR::Options::limitOptionRelocation(const char *option, void *base, TR::OptionTable *entry)
+{
+    // TODO: this is identical to the J9 frontend
+    if (!TR::Options::getRelocationFilters())
+        TR::Options::_relocationFilters = TR::CompilationFilters::build();
+    return TR::Options::getRelocationFilters()->limitOption(option, base, entry, TR::Options::getCmdLineOptions());
 }
 
 const char *OMR::Options::limitfileOption(const char *option, void *base, TR::OptionTable *entry)
 {
     if (!TR::Options::getDebug() && !TR::Options::createDebug())
         return 0;
-    return TR::Options::getDebug()->limitfileOption(option, base, entry, TR::Options::getCmdLineOptions(), false);
+    return TR::Options::getCompilationFilters()->limitfileOption(option, base, entry, TR::Options::getCmdLineOptions());
 }
 
 const char *OMR::Options::inlinefileOption(const char *option, void *base, TR::OptionTable *entry)
 {
-    if (!TR::Options::getDebug() && !TR::Options::createDebug())
-        return 0;
-    return TR::Options::getDebug()->inlinefileOption(option, base, entry, TR::Options::getCmdLineOptions());
+    if (!TR::Options::getInlineFilters())
+        TR::Options::_inlineFilters = TR::CompilationFilters::build();
+    return TR::Options::getInlineFilters()->inlinefileOption(option, base, entry, TR::Options::getCmdLineOptions());
 }
 
 bool OMR::Options::showOptionsInEffect() { return (TR::Options::getVerboseOption(TR_VerboseOptions)); }
@@ -6216,3 +6232,4 @@ void OMR::Options::setDefaultsForDeterministicMode()
         }
     }
 }
+
