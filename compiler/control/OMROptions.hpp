@@ -1295,6 +1295,8 @@ public:
 
     TR_FilterBST *findRegex(const char *methodSpec);
 
+    int32_t scanFilterName(const char *string);
+
     char *_name;
     char *_class;
     char *_signature;
@@ -1328,6 +1330,7 @@ namespace TR {
 class CompilationFilters {
 public:
 #define FILTER_HASH_SIZE 211
+#define FILTER_SIZE (sizeof(TR::CompilationFilters) + sizeof(TR_FilterBST *) * FILTER_HASH_SIZE)
     // Hash table for complete class+name+signature or name+signature.
     //
     TR_FilterBST **filterHash;
@@ -1379,6 +1382,20 @@ public:
         else
             flags &= ~DefaultExclude;
     }
+
+    void clear();
+
+    TR_FilterBST *addFilter(const char *&filterString, bool scanningExclude, int32_t optionSetIndex, int32_t lineNum);
+
+    TR_FilterBST *addExcludedMethodFilter();
+
+    const char *limitOption(const char *option, void *base, TR::OptionTable *entry, TR::Options *cmdLineOptions);
+
+    bool methodCanBeFound(TR_Memory *trMemory, TR_ResolvedMethod *method, TR_FilterBST *&filter);
+
+    bool matchesMethodSignature(const char *methodSig, TR::Method::Type methodType, TR_FilterBST *&filter);
+
+    static CompilationFilters *build();
 };
 } // namespace TR
 
@@ -1395,12 +1412,6 @@ protected:
 
 public:
     TR_ALLOC(TR_Memory::Options)
-
-    TR::CodeCacheKind getCodeCacheKind() { return _codeCacheKind; }
-
-    TR::SimpleRegex *getTransientClassRegex() { return _transientClassRegex; }
-
-    void setCodeCacheKind(TR::CodeCacheKind kind) { _codeCacheKind = kind; }
 
     void init()
     {
@@ -1564,6 +1575,9 @@ public:
         _arraycopyRepMovsReferenceArrayThreshold = 128;
         _codeCacheKind = TR::CodeCacheKind::DEFAULT_CC;
         _transientClassRegex = NULL;
+        _compilationFilters = NULL;
+        _relocationFilters = NULL;
+        _inlineFilters = NULL;
 
         memset(_options, 0, sizeof(_options));
         memset(_disabledOptimizations, false, sizeof(_disabledOptimizations));
@@ -2100,6 +2114,18 @@ public:
     int32_t getArraycopyRepMovsLongArrayThreshold() { return _arraycopyRepMovsLongArrayThreshold; }
 
     int32_t getArraycopyRepMovsReferenceArrayThreshold() { return _arraycopyRepMovsReferenceArrayThreshold; }
+
+    TR::CodeCacheKind getCodeCacheKind() { return _codeCacheKind; }
+
+    TR::SimpleRegex *getTransientClassRegex() { return _transientClassRegex; }
+
+    void setCodeCacheKind(TR::CodeCacheKind kind) { _codeCacheKind = kind; }
+
+    TR::CompilationFilters *getCompilationFilters() { return _compilationFilters; }
+
+    TR::CompilationFilters *getRelocationFilters() { return _relocationFilters; }
+
+    TR::CompilationFilters *getInlineFilters() { return _inlineFilters; }
 
 public:
     static void shutdown(TR_FrontEnd *fe);
@@ -2848,6 +2874,11 @@ protected:
 
     TR::CodeCacheKind _codeCacheKind;
     TR::SimpleRegex *_transientClassRegex;
+
+
+    TR::CompilationFilters *_compilationFilters;
+    TR::CompilationFilters *_relocationFilters;
+    TR::CompilationFilters *_inlineFilters;
 }; // TR::Options
 
 } // namespace OMR

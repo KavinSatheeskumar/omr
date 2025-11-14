@@ -471,8 +471,6 @@ public:
      */
     void breakOrDebugOnCreate(char *artifactName);
 
-    virtual TR::CompilationFilters *getInlineFilters() { return _inlineFilters; }
-
     virtual TR_FrontEnd *fe() { return _fe; }
 
     virtual TR::Compilation *comp() { return _comp; }
@@ -518,30 +516,9 @@ public:
     virtual const char *limitfileOption(const char *, void *, TR::OptionTable *, TR::Options *, bool loadLimit,
         TR_PseudoRandomNumbersListElement **pseudoRandomListHeadPtr = 0);
     virtual const char *inlinefileOption(const char *, void *, TR::OptionTable *, TR::Options *);
-    virtual const char *limitOption(const char *, void *, TR::OptionTable *, TR::Options *, bool loadLimit);
-    const char *limitOption(const char *, void *, TR::OptionTable *, TR::Options *, TR::CompilationFilters *&);
     virtual int32_t *loadCustomStrategy(char *optFileName);
-    virtual bool methodCanBeCompiled(TR_Memory *mem, TR_ResolvedMethod *, TR_FilterBST *&);
-    virtual bool methodCanBeRelocated(TR_Memory *mem, TR_ResolvedMethod *, TR_FilterBST *&);
-    virtual bool methodSigCanBeCompiled(const char *, TR_FilterBST *&, TR::Method::Type methodType);
-    virtual bool methodSigCanBeRelocated(const char *, TR_FilterBST *&);
-    virtual bool methodSigCanBeCompiledOrRelocated(const char *, TR_FilterBST *&, bool isRelocation,
-        TR::Method::Type methodType);
-    virtual bool methodCanBeFound(TR_Memory *, TR_ResolvedMethod *, TR::CompilationFilters *, TR_FilterBST *&);
-    virtual bool methodSigCanBeFound(const char *, TR::CompilationFilters *, TR_FilterBST *&,
-        TR::Method::Type methodType);
 
-    virtual TR::CompilationFilters *getCompilationFilters() { return _compilationFilters; }
-
-    virtual TR::CompilationFilters *getRelocationFilters() { return _relocationFilters; }
-
-    virtual void clearFilters(TR::CompilationFilters *);
-    void clearFilters(bool loadLimit);
     virtual bool scanInlineFilters(FILE *, int32_t &, TR::CompilationFilters *);
-    virtual TR_FilterBST *addFilter(const char *&, int32_t, int32_t, int32_t, TR::CompilationFilters *);
-    virtual TR_FilterBST *addFilter(const char *&, int32_t, int32_t, int32_t, bool loadLimit);
-    virtual TR_FilterBST *addExcludedMethodFilter(bool loadLimit);
-    virtual int32_t scanFilterName(const char *, TR_FilterBST *);
     virtual void printFilters(TR::CompilationFilters *);
     virtual void printFilters();
     virtual void print(TR_FilterBST *filter);
@@ -820,9 +797,6 @@ public:
 
     void printLoadConst(TR::FILE *, TR::Node *);
     void printLoadConst(TR::Node *, TR_PrettyPrinterString &);
-
-    TR::CompilationFilters *findOrCreateFilters(TR::CompilationFilters *);
-    TR::CompilationFilters *findOrCreateFilters(bool loadLimit);
 
     void printFilterTree(TR_FilterBST *root);
 
@@ -1327,9 +1301,6 @@ protected:
     uint32_t _nextInstructionNumber;
     uint32_t _nextStructureNumber;
     uint32_t _nextVariableSizeSymbolNumber;
-    TR::CompilationFilters *_compilationFilters;
-    TR::CompilationFilters *_relocationFilters;
-    TR::CompilationFilters *_inlineFilters;
     bool _usesSingleAllocMetaData;
     TR_BitVector _nodeChecklist;
     TR_BitVector _structureChecklist;

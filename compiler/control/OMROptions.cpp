@@ -5958,3 +5958,274 @@ void OMR::Options::setDefaultsForDeterministicMode()
         }
     }
 }
+
+
+// -----------------------------------------------------------------------------
+// TR::CompilationFilters
+// -----------------------------------------------------------------------------
+
+void TR::CompilationFilters::clear()
+{
+  char *buf = (char *)this;
+  int32_t size = FILTER_SIZE;
+  memset(buf, 0, size);
+
+  filterHash = (TR_FilterBST **)(buf + sizeof(TR::CompilationFilters));
+  setDefaultExclude(false);
+  excludedMethodFilter = NULL;
+}
+
+TR::CompilationFilters *TR::CompilationFilters::build()
+{
+  int32_t size = sizeof(TR::CompilationFilters) + sizeof(TR_FilterBST *) * FILTER_HASH_SIZE;
+
+  char *buf = (char *)(TR::Compiler->regionAllocator.allocate(size));
+
+  TR::CompilationFilters *filters = (TR::CompilationFilters *)buf;
+  filters->clear();
+  return filters;
+}
+
+TR_FilterBST *TR::CompilationFilters::addFilter(const char *&filterString, bool scanningExclude, int32_t optionSetIndex, int32_t lineNum)
+{
+  uint32_t filterType = scanningExclude ? TR_FILTER_EXCLUDE_NAME_ONLY : TR_FILTER_NAME_ONLY;
+
+  TR_FilterBST *filterBST = new (TR::Compiler->regionAllocator) TR_FilterBST(filterType, optionSetIndex, lineNum);
+
+  int32_t nameLength;
+  if (*filterString == '{') {
+    const char *filterCursor = filterString;
+    filterType = scanningExclude ? TR_FILTER_EXCLUDE_REGEX : TR_FILTER_REGEX;
+    filterBST->setFilterType(filterType);
+
+    // Create the regular expression from the regex string
+    //
+    TR::SimpleRegex *regex = TR::SimpleRegex::create(filterCursor);
+    if (!regex) {
+      fprintf(stderr, "FAILURE: Bad regular expression at --> '%s'\n", filterCursor);
+      return 0;
+    }
+    nameLength = static_cast<int32_t>(filterCursor - filterString);
+    filterBST->setRegex(regex);
+    filterBST->setNext(hasRegexFilter() ? filterRegexList : NULL);
+    filterRegexList = filterBST;
+    setHasRegexFilter();
+  } else {
+    // Note - the following call changes the filterType field in the filterBST
+    //
+    nameLength = filterBST->scanFilterName(filterString);
+    if (!nameLength)
+      return 0;
+
+    // Add the filter to the appropriate data structure
+    //
+    filterType = filterBST->getFilterType();
+    if (filterType == TR_FILTER_EXCLUDE_NAME_ONLY || filterType == TR_FILTER_NAME_ONLY) {
+      if (filterNameList)
+          filterBST->insert(filterNameList);
+      else
+          filterNameList = filterBST;
+      setHasNameFilter();
+    } else {
+      TR_FilterBST **bucket = &(filterHash[nameLength % FILTER_HASH_SIZE]);
+
+      if (*bucket)
+        filterBST->insert(*bucket);
+      else
+        *bucket = filterBST;
+
+      if (filterType == TR_FILTER_NAME_AND_SIG || filterType == TR_FILTER_EXCLUDE_NAME_AND_SIG)
+        setHasNameSigFilter();
+      else
+        setHasClassNameSigFilter();
+    }
+  }
+
+  // We start by assuming we are including everything by default.
+  // If we find a +ve filter (i.e. include only this) which is not part of an
+  // option subset, change the default to be exclude everything.
+  //
+  if (!scanningExclude && optionSetIndex == 0) {
+    setDefaultExclude(true);
+  }
+
+  filterString += nameLength;
+  return filterBST;
+}
+
+TR_FilterBST *TR::CompilationFilters::addExcludedMethodFilter()
+{
+  TR_FilterBST *filterBST = new (TR::Compiler->regionAllocator) TR_FilterBST(TR_FILTER_EXCLUDE_SPECIFIC_METHOD, TR_EXCLUDED_OPTIONSET_INDEX);
+  excludedMethodFilter = filterBST;
+}
+
+const char *TR::CompilationFilters::limitOption(const char *option, void *base, TR::OptionTable *entry, TR::Options *cmdLineOptions)
+{
+  const char *p = option;
+
+  TR_FilterBST *filter = addFilter(p, entry->parm1, 0, 0);
+
+  if (!filter)
+    return option;
+
+  int32_t len = static_cast<int32_t>(p - option);
+  char *limitName = (char *)(TR::Compiler->regionAllocator.allocate(len + 1));
+  memcpy(limitName, option, len);
+  limitName[len] = 0;
+  entry->msgInfo = (intptr_t)limitName;
+
+  // Look for option subset if this is "limit" rather than "exclude"
+  //
+  TR::SimpleRegex *methodRegex = filter->getRegex();
+  if (methodRegex && !entry->parm1 && (*p == '(' || *p == '{')) {
+    TR::SimpleRegex *optLevelRegex = NULL;
+
+    // Scan off the opt level regex if it is present
+    //
+    if (*p == '{') {
+      optLevelRegex = TR::SimpleRegex::create(p);
+      if (!optLevelRegex || *p != '(') {
+        if (!optLevelRegex) {
+          TR_VerboseLog::writeLineLocked(TR_Vlog_FAILURE, "Bad regular expression at --> '%s'", p);
+        }
+        return option;
+      }
+    }
+    // If an option subset was found, save the information for later
+    // processing
+    //
+    const char *startOptString = ++p;
+    int32_t parenNest = 1;
+    for (; *p; p++) {
+      if (*p == '(')
+        parenNest++;
+      else if (*p == ')') {
+        if (--parenNest == 0) {
+          p++;
+          break;
+        }
+      }
+    }
+    if (parenNest)
+      return startOptString;
+
+    // Save the option set - its option string will be processed after
+    // the main options have been finished.
+    //
+    TR::OptionSet *newSet = (TR::OptionSet *)(TR::Compiler->regionAllocator.allocate(sizeof(TR::OptionSet)));
+    newSet->init(startOptString);
+    newSet->setMethodRegex(methodRegex);
+    newSet->setOptLevelRegex(optLevelRegex);
+    cmdLineOptions->saveOptionSet(newSet);
+  }
+
+  return p;
+}
+
+bool TR::CompilationFilters::matchesMethodSignature(const char *methodSig, TR::Method::Type methodType, TR_FilterBST *&filter)
+{
+  const char *methodClass, *methodName, *methodSignature;
+  uint32_t methodClassLen, methodNameLen, methodSignatureLen;
+
+  methodClass = methodSig;
+  if (methodType != TR::Method::J9) {
+    if (methodSig[0] == '/' || methodSig[0] == '.') // omr method pattern
+    {
+      methodClass = methodSig;
+      methodSignature = strchr(methodSig, ':');
+      methodClassLen = static_cast<uint32_t>(methodSignature - methodClass);
+      methodSignature++;
+      methodName = strchr(methodSignature, ':');
+      methodSignatureLen = static_cast<uint32_t>(methodName - methodSignature);
+      methodName++;
+      methodNameLen = static_cast<uint32_t>(strlen(methodName));
+    } else {
+      methodName = methodSig;
+      methodClassLen = 0;
+      methodSignature = "";
+      methodSignatureLen = 0;
+      methodNameLen = static_cast<uint32_t>(strlen(methodName));
+    }
+  } else {
+    if (methodSig[0] == '/') // omr method pattern
+    {
+      methodClass = methodSig;
+      methodSignature = strchr(methodSig, ':');
+      methodClassLen = static_cast<uint32_t>(methodSignature - methodClass);
+      methodSignature++;
+      methodName = strchr(methodSignature, ':');
+      methodSignatureLen = static_cast<uint32_t>(methodName - methodSignature);
+      methodName++;
+      methodNameLen = static_cast<uint32_t>(strlen(methodName));
+    } else {
+      methodName = strchr(methodSig, '.');
+      methodClassLen = static_cast<uint32_t>(methodName - methodClass);
+      methodName++;
+      methodSignature = strchr(methodName, '(');
+      methodSignatureLen = static_cast<uint32_t>(strlen(methodSignature));
+      TR_ASSERT(methodSignature, "unable to pattern match java method signature");
+      methodNameLen = static_cast<uint32_t>(methodSignature - methodName);
+    }
+  }
+
+  int32_t length = methodNameLen + methodSignatureLen;
+
+  if (hasClassNameSigFilter() || hasNameSigFilter()) {
+    if (hasClassNameSigFilter()) {
+      // Search for the class+name+signature.
+      //
+      filter = filterHash[(length + methodClassLen) % FILTER_HASH_SIZE];
+      if (filter)
+        filter = filter->find(methodName, methodNameLen, methodClass, methodClassLen, methodSignature,
+          methodSignatureLen);
+    }
+
+    if (!filter && hasNameSigFilter()) {
+      // Search for the name+signature.
+      //
+      filter = filterHash[length % FILTER_HASH_SIZE];
+      if (filter)
+        filter = filter->find(methodName, methodNameLen, "", 0, methodSignature, methodSignatureLen);
+    }
+  }
+
+  if (!filter && hasNameFilter()) {
+    // Search the name filter list.
+    //
+    filter = filterNameList;
+    if (filter)
+      filter = filter->find(methodName, methodNameLen);
+  }
+
+  if (!filter && hasRegexFilter()) {
+    // Search the regex filter list.
+    //
+    filter = filterRegexList;
+    if (filter)
+      filter = filter->findRegex(methodSig);
+  }
+
+  bool excluded = defaultExclude() != 0;
+  if (filter) {
+    switch (filter->getFilterType()) {
+      case TR_FILTER_EXCLUDE_NAME_ONLY:
+      case TR_FILTER_EXCLUDE_NAME_AND_SIG:
+      case TR_FILTER_EXCLUDE_SPECIFIC_METHOD:
+      case TR_FILTER_EXCLUDE_REGEX:
+        excluded = true;
+        break;
+      default:
+        excluded = false;
+        break;
+    }
+  }
+
+  return !excluded;
+}
+
+bool TR::CompilationFilters::methodCanBeFound(TR_Memory *trMemory, TR_ResolvedMethod *method, TR_FilterBST *&filter)
+{
+  const char *methodSig = method->signature(trMemory);
+  return matchesMethodSignature(methodSig, method->convertToMethod()->methodType(), filter);
+}
+
