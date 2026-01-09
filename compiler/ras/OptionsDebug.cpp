@@ -64,7 +64,6 @@ TR::FILE *TR_Debug::findLogFile(TR::Options *cmdLineOptions, TR::OptionSet *optS
 {
     char *fileName = cmdLineOptions->getLogFileName();
     TR::FILE *logFile = NULL;
-    logger = NULL;
 
     if (fileName && !STRICMP(logFileName, fileName)) {
         logFile = cmdLineOptions->getLogFile();
