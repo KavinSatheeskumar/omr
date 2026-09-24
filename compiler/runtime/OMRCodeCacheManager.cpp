@@ -60,6 +60,12 @@ TR::CodeCacheSymbolContainer *OMR::CodeCacheManager::_symbolContainer = NULL;
 
 #endif // HOST_OS == OMR_LINUX
 
+#if defined(LINUX)
+#if !defined(MADV_HUGEPAGE)
+#define MADV_HUGEPAGE 14
+#endif /* MADV_HUGEPAGE */
+#endif /* LINUX */
+
 OMR::CodeCacheManager::CodeCacheManager(TR::RawAllocator rawAllocator)
     : _rawAllocator(rawAllocator)
     , _config()
@@ -260,6 +266,15 @@ TR::CodeCache *OMR::CodeCacheManager::allocateCodeCacheObject(TR::CodeCacheMemor
     TR::CodeCache *codeCache = static_cast<TR::CodeCache *>(self()->getMemory(sizeof(TR::CodeCache)));
     if (codeCache) {
         new (codeCache) TR::CodeCache();
+
+#if defined(LINUX)
+        // Advise the kernel on huge page usage for the code segment backing memory.
+        // AOT-loaded code uses 4KB pages to avoid pinning large THP mappings for
+        // rarely-executed code; all other kinds request 2MB transparent huge pages.
+        int madvisehint = (kind == TR::CodeCacheKind::AOT) ? MADV_NOHUGEPAGE : MADV_HUGEPAGE;
+        madvise(codeCacheSegment->segmentBase(), codeCacheSize, madvisehint);
+#endif /* LINUX */
+
         if (!codeCache->initialize(self(), codeCacheSegment, codeCacheSize, kind)) {
             self()->freeMemory(codeCache);
             codeCache = NULL;
